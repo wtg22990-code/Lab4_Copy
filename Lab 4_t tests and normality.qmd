@@ -11,6 +11,13 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(Hmisc)
+library(corrplot)
+library(corrgram)
+library(broom)
+library(dplyr)
+library(readr)
+library(knitr)
 ```
 
 ## One and two sample difference tests
@@ -47,6 +54,14 @@ Load the dataset using read_csv, and also take a look at the two variables of in
 **Task 1** _Load the Pulse data and filter it to only valid responses._
 
 ```{r Task1}
+Pulse_Data<-read_csv("data/pulse_2023.csv")
+
+Filtered_Pulse<-Pulse_Data%>%
+  group_by(THHLD_NUMKID, ND_DISPLACE)%>%
+  filter(!is.na(THHLD_NUMKID), !is.na(ND_DISPLACE))
+
+Questionable_Filter<-Pulse_Data%>%
+  filter(THHLD_NUMKID>=0, ND_DISPLACE>=0)
 
 ```
 
@@ -56,6 +71,14 @@ You'll be conducting a two-sample test of difference to look at whether the numb
 
 ```{r Task2}
 
+ggplot(Questionable_Filter,aes(sample=THHLD_NUMKID))+
+  stat_qq()+
+  stat_qq_line()
+
+ggplot(Questionable_Filter,aes(x=THHLD_NUMKID)) + 
+  geom_histogram()
+
+#I find the histogram easier to interpret and does not look as "off" (I know I did not need both but its not hard to follow). The histogram shows a clear right scew to the data. A normal distribution of the histogram would have a bell shape. This is concentrated around lower values. 
 ```
 
 ### Testing the difference in number of children.
@@ -64,17 +87,44 @@ Now you can test whether the number of children differs between displaced and no
 
 **Task 3** _Based on the normality of the data, what is the appropriate statistical test for determining whether the number of children differs between these two groups? Explain why this test is appropriate and give a null and alternative hypothesis for this test_
 
-{Your answer here}
+{A wilcoxin test should work because it would work as a two-pair if the data were noramlly distributed. This is right scewed, so it is non-parametric and needs its null hypothesis disproved. 
+
+
+Null:Displaced and non-displaced people have no difference in number of children
+Alternative:Displaced and non-displaced people have a difference in number of children.}
+
 
 **Task 4** _Run the test you identified in Task 3. Also calculate the mean for each dataset, which you can use to determine the nature of the difference--which group (if any) has more children._
 
 ```{r Task4}
+ Displacement<-Questionable_Filter%>%
+  select("ND_DISPLACE")
+
+ Children<-Questionable_Filter%>%
+   select("THHLD_NUMKID")
+   
+
+
+wilcox.test(Displacement$ND_DISPLACE, Children$THHLD_NUMKID, paired=TRUE)
+#data:  Displacement$ND_DISPLACE and Children$THHLD_NUMKID
+#W =8.2993e+10, p-value < 2.2e-16
+#alternative hypothesis: true location shift is not equal to 0
+
+Mean_values<-Questionable_Filter%>%
+  group_by(`ND_DISPLACE`)%>%
+  summarise(NumKids_mean=mean(THHLD_NUMKID))
+
 
 ```
 
 **Task 5** _Interpret the results of the analysis you did in task 4._ 
   * Do you reject the null hypothesis? Why or why not? 
+  
+  The null hypothesis should be rejected because the p-value of the Wilcoxin test is <0.05 (p-value < 2.2e-16). This shows that there is a correlation between number of children and displacement. 
+  
   * Based on the test result and the group means, what can we conclude about differences in the number of children between these two groups?
+  
+  People who were displaced are more likely to have more children. The mean of the displaced was around 0.75 while the non-displaced was around 0.60. People with more children are more likely to be displaced. 
 
 ### Identifying differences in time displaced by natural disasters across income groups
 
@@ -86,29 +136,65 @@ Again, look at the data dictionary to better understand how these two variables 
 
 ```{r Task6}
 
+Income_Comparison<-Pulse_Data%>%
+  select(ND_DISPLACE,INCOME,ND_HOWLONG)%>%
+filter(ND_DISPLACE==1, INCOME>=0, ND_HOWLONG>=0)
+
+kable(head(Income_Comparison))
 ```
 
 **Task 7** _Create a contingency table of responses to the ND_HOWLONG variable by INCOME. The rows of this table should be the income groups and the columns should be the categorical variables showing time displaced. Call the table when you are done._
 
 ```{r Task7}
 
+Contingency_Income<-Income_Comparison%>%
+   count(ND_HOWLONG,INCOME,name="count")%>% 
+  pivot_wider(names_from=ND_HOWLONG,names_prefix="ND_HOWLONG_",values_from=count,values_fill=0) #Asked Chatgpt for a Column                                                                                                   name function.
+
+  
+kable(Contingency_Income)
 ```
 
 **Task 8** _Run a chi-square test on your contingency table to assess whether there are statistically significant differences in displacement time between these income groups. You'll likely need to delete the INCOME variable to do so._ 
 
 ```{r Task8}
+Incomeless_table<-Contingency_Income%>%
+  select(ND_HOWLONG_1:ND_HOWLONG_5)
 
+
+chisq.test(Incomeless_table)
+
+#Pearson's Chi-squared test
+
+#data:  Incomeless_table
+#X-squared = 210.51, df = 28, p-value < 2.2e-16
 ```
 
 **Task 9** _To help with your interpretation of results, Calculate the percentage of households within each income group that fall into category 1 of ND_HOWLONG ("displaced less than a week")._
 
 ```{r Task9}
 
+Income_Percentage<-Contingency_Income%>%
+  pivot_longer(`ND_HOWLONG_1`:`ND_HOWLONG_5`,names_to="ND_HOWLONG",values_to="count")%>% 
+  group_by(INCOME)%>%
+  mutate(total=sum(count))%>%
+  mutate(pct=round(count/total*100,1))%>% #A bit more than just category 1 but it does not hurt. It looked odd with just ND1
+  select(-count)%>% 
+  pivot_wider(names_from=ND_HOWLONG,values_from=pct) 
+
+kable(Income_Percentage)
+
 ```
 
 **Task 10** _Interpret the results of your analysis in tasks 8 and 9._ 
   * Do you reject the null hypothesis based on these results and why (or why not)? 
+  
+I would reject the null that income does not effect length of displacement. The x^2 value is larger than the critical value and the p-value from the chi-squared test shows there is a significant difference. Income does effect how long a family is displaced. 
+
   * What do your results in Task 9 tell you about differences in how quickly households were able to return?
+  
+  Higher incomes generally could return quicker in category 1 of displacement and consistently increased in percentage returned until level 8. I believe the discrepancy in level 8 comes from people in this income bracket completely moving away more frequently. They have the resources to move and it shows based on the level 5 displacement percentages. The highest incomes moved away entirely more frequently than the previous 5 income levels. 
+  
 
 ### Challenge Question:
 Calculate and map the percentage of households reporting displacement (ND_DISPLACE) by state. To do so, you'll need to start with a version of the dataset that excludes non-valid responses and then calculate the percentage displaced by state.
@@ -123,8 +209,8 @@ Once you've calculated that estimate, map it out using the `states_albers` geopa
 
 **Disclosure of assistance:** Besides class materials, what other sources of assistance did you use while completing this lab? These can include input from classmates, relevant material identified through web searches (e.g., Stack Overflow), or assistance from ChatGPT or other AI tools. How did these sources support your own learning in completing this lab?
 
-{Response here.}
+{I really only used ChatGPT for the column naming function. I asked what the x^2 meant in a chi-squared test. I now know it is ascosiated with a critical value from the chi-squared table. my results would have been above the critical value up to and past 99%. I asked if the negative values were associated with NA, but I got further clarification in class. Like you have said, this lab is hard because of statistical analysis not coding.}
 
 **Lab reflection:** How do you feel about the work you did on this lab? Was it easy, moderate, or hard? What are the biggest things you learned by completing it?
 
-{Your response here}
+{I think this was the easiest lab so far. I put notes into the script where I thought they could be used later. This made knowing how to approach the code alot easier. I am mainly worried about my analysis. Task 9 is also a bit beyond but just doing ND_LONG_1 does not work. It moves the column to the end and row is put at 100%. I adapted it from script 18, so I am missing how the function works somewhere. I applied what we learned about normality, p-values, and hypothesis in class to this lab. I know what the different scews and p values indicate now. Finally, I know how to use the chi-squared tables and critical values to see if x is above the cutoff.}
